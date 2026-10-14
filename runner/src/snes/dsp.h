@@ -107,6 +107,9 @@ Dsp *dsp_init(uint8_t *ram);
 void dsp_free(Dsp* dsp);
 void dsp_reset(Dsp* dsp);
 void dsp_cycle(Dsp* dsp);
+/* Saturate BRR-decode and interpolation overflows instead of wrapping them
+ * (0 = hardware behaviour, the default): see dsp.c. */
+void dsp_set_declick(int enabled);
 uint8_t dsp_read(Dsp* dsp, uint8_t adr);
 void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val);
 /* Native-rate output-ring access. The consumer (RtlRenderAudio) reconciles the
