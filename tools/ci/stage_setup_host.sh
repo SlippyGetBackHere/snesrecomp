@@ -300,7 +300,7 @@ rm -f "${ZIP}"
   else
     # Python's zipfile does not keep the executable bit; only reached on a
     # host with neither zip nor 7z, which the workflow does not use.
-    python3 - "${NAME}" <<'PY'
+    "${PY}" - "${NAME}" <<'PY'
 import os, stat, sys, zipfile
 name = sys.argv[1]
 with zipfile.ZipFile(name + ".zip", "w", zipfile.ZIP_DEFLATED) as zf:
