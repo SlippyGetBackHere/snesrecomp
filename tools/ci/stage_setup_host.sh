@@ -165,6 +165,33 @@ git -C "${ROOT}" ls-files -z --recurse-submodules \
     | awk '{print $2"="$1}'
 } > "${STAGE}/SOURCE_REVISIONS"
 
+# ── the native analyzer ─────────────────────────────────────────────────────
+# Generate needs snesrecomp-analyze, and without one beside the recompiler it
+# builds it with Cargo -- which a player does not have. Build it here from the
+# staged framework revision and ship it where the generator looks first, so
+# the player's machine needs no Rust. The analyzer's own digest is part of
+# the generator digest, so this binary is the one the generated C names.
+PY="$(command -v python3 || command -v python || true)"
+if [[ -z "${PY}" ]]; then
+  echo "error: python3 not found; it is needed to build the native analyzer" >&2
+  exit 1
+fi
+"${PY}" "${ROOT}/snesrecomp/tools/build_native_analyzer.py"
+ANALYZER_REL="snesrecomp/recompiler-rs/target/release/snesrecomp-analyze"
+ANALYZER_STAGED=""
+for cand in "${ROOT}/${ANALYZER_REL}.exe" "${ROOT}/${ANALYZER_REL}"; do
+  if [[ -f "${cand}" ]]; then
+    mkdir -p "${STAGE}/$(dirname "${ANALYZER_REL}")"
+    cp -a "${cand}" "${STAGE}/$(dirname "${ANALYZER_REL}")/"
+    ANALYZER_STAGED=1
+    break
+  fi
+done
+if [[ -z "${ANALYZER_STAGED}" ]]; then
+  echo "error: ${ANALYZER_REL} was not built; the pack could not generate without Rust" >&2
+  exit 1
+fi
+
 # The launcher finds its project root by these two files. Prove the staged
 # tree has them, or the shipped zip can generate but never rebuild.
 for need in snesrecomp/snesrecomp_cli.py recomp/bank00.cfg CMakeLists.txt VERSION; do
