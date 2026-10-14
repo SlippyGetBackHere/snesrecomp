@@ -730,6 +730,11 @@ def emit_function(rom: bytes, bank: int, start: int,
     # Lower every (insn, key) into its IR ops, in block order.
     block_lines: Dict[DecodeKey, List[str]] = {}
     block_order: List[DecodeKey] = []
+    # Blocks whose terminal instruction is re-executed by the interpreter
+    # (an unresolved indirect goto re-dispatches at its own PC). The
+    # interpreter charges that instruction, so the block's static charge
+    # must not: charging it here too billed every such jump twice.
+    reinterpreted_terminal = set()
 
     # Emit blocks in a stable order: entry first, then DFS over successors.
     visited = set()
@@ -1877,6 +1882,7 @@ def emit_function(rom: bytes, bank: int, start: int,
                                 f"{_transfer_target_expr(site_pc24, False)}, 0x{site_pc24:06x}u, "
                                 f"_entry_s, _hrv, true); "
                                 f"/* unresolved IndirectGoto -> interpreter tier */")
+                            reinterpreted_terminal.add(key)
                         block_terminated = True
                 elif isinstance(op, (PushReg, PushEffectiveAddress)) and getattr(
                         di_insn, 'dispatch_entries', None):
@@ -2169,7 +2175,10 @@ def emit_function(rom: bytes, bank: int, start: int,
         # (D.l/page-cross/branch-taken) are charged dynamically in block_lines.
         # Axis-5: also charge the region-weighted MASTER clocks (CPU cycles x
         # code-region speed) into cpu->master_cycles, which paces the SPC700.
-        _cyc_const = _block_cycle_const(block_per_insn_ir.get(key, []))
+        _charged_pairs = block_per_insn_ir.get(key, [])
+        if key in reinterpreted_terminal and _charged_pairs:
+            _charged_pairs = _charged_pairs[:-1]
+        _cyc_const = _block_cycle_const(_charged_pairs)
         if _cyc_const:
             src.append(f'    cpu->cycles += {_cyc_const};')
             _spd_expr, _spd_const = _block_speed(bank, key.pc)
@@ -2177,7 +2186,7 @@ def emit_function(rom: bytes, bank: int, start: int,
             # data accesses at their region's, internal cycles at 6
             # (snes_cycles.instr_bus_terms). Unmodelled instructions keep
             # the per-cycle code-speed charge.
-            _code_n, _other = _block_master_terms(block_per_insn_ir.get(key, []))
+            _code_n, _other = _block_master_terms(_charged_pairs)
             if _spd_const is not None:
                 src.append(f'    cpu->master_cycles += SNES_CPU_CLOCKS({_code_n * _spd_const + _other});')
             elif _other:
