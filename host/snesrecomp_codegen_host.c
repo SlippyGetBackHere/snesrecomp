@@ -1270,9 +1270,28 @@ static int write_windows_deferred_rebuild_helper(char* err_msg, size_t err_cap) 
             "  ping -n 2 127.0.0.1 >NUL\r\n"
             "  goto waitloop\r\n"
             ")\r\n"
-            /* The pack's env.bat is its own statement of how to use it
-             * (PATH, CC/CXX, SDL3_DIR); calling it beats a second copy. */
-            "if exist \"%%PACK%%\\env.bat\" call \"%%PACK%%\\env.bat\"\r\n"
+            /* The pack's environment, as activate_toolchain() sets it for
+             * this process (the helper inherits that as well). Not by
+             * calling the pack's env.bat: one with LF line endings makes
+             * cmd.exe misparse it and end this script before it configures
+             * anything. One-line ifs and a goto rather than ( ) blocks, so a
+             * PATH holding "Program Files (x86)" cannot close a block. */
+            "if \"%%PACK%%\"==\"\" goto nopack\r\n"
+            "set \"PACK=%%PACK:/=\\%%\"\r\n"
+            "set \"PATH=%%PACK%%\\bin;%%PATH%%\"\r\n"
+            "if exist \"%%PACK%%\\python\\python.exe\" "
+            "set \"PATH=%%PACK%%\\python;%%PATH%%\"\r\n"
+            "set \"RETCOMM_TOOLCHAIN_DIR=%%PACK%%\"\r\n"
+            "if exist \"%%PACK%%\\bin\\clang.exe\" "
+            "set \"CC=%%PACK%%\\bin\\clang.exe\"\r\n"
+            "if exist \"%%PACK%%\\bin\\clang++.exe\" "
+            "set \"CXX=%%PACK%%\\bin\\clang++.exe\"\r\n"
+            "if exist \"%%PACK%%\\deps\\lib\\cmake\\SDL3\" "
+            "set \"SDL3_DIR=%%PACK%%\\deps\\lib\\cmake\\SDL3\"\r\n"
+            "if exist \"%%PACK%%\\deps\\include\\zlib.h\" "
+            "set \"ZLIB_ROOT=%%PACK%%\\deps\"\r\n"
+            "set \"PYTHONNOUSERSITE=1\"\r\n"
+            ":nopack\r\n"
             "cd /d \"%%ROOT%%\"\r\n"
             /* A setup zip ships no build tree: configure on first rebuild. */
             "if not exist \"%%BUILD_DIR%%\\CMakeCache.txt\" (\r\n"
@@ -1294,10 +1313,14 @@ static int write_windows_deferred_rebuild_helper(char* err_msg, size_t err_cap) 
             "echo Building...\r\n"
             /* The console shows the build live; the log keeps it for a
              * failure report after the window has gone. */
-            "\"%%CMAKE%%\" --build \"%%BUILD_DIR%%\" --parallel "
-            "--target \"%%TARGET%%\" 2>&1 | "
-            "powershell -NoProfile -Command \"$input | Tee-Object -FilePath "
-            "'%%BUILD_DIR%%\\snesrecomp_rebuild.log' -Append\"\r\n"
+            /* The build runs inside PowerShell so its exit code survives
+             * the tee: after "cmake | powershell" cmd's errorlevel is the
+             * tee's, and a failed build went on to start the old binary. */
+            "powershell -NoProfile -Command \"& $env:CMAKE --build "
+            "$env:BUILD_DIR --parallel --target $env:TARGET 2>&1 | "
+            "ForEach-Object { [string]$_ } | Tee-Object -FilePath "
+            "(Join-Path $env:BUILD_DIR 'snesrecomp_rebuild.log') -Append; "
+            "exit $LASTEXITCODE\"\r\n"
             "if errorlevel 1 (\r\n"
             "  echo.\r\n"
             "  echo Build failed. Fix the errors above, then rebuild manually.\r\n"
