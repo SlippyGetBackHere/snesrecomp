@@ -152,6 +152,23 @@ def generate(
                 reporter.log(line)
         return code
 
+    # The emitter reads host aliases from the funcs.h beside the cfg files,
+    # and funcs.h is derived from those cfg files alone. Sync it before
+    # emitting as well as after, so a fresh tree (no funcs.h yet: it is not
+    # committed) generates what a tree regenerated before does.
+    if funcs_h is not None:
+        reporter.phase(
+            "sync_funcs_h",
+            pct=0.1,
+            message=f"Syncing function declarations to {funcs_h}",
+        )
+        sync_code = run_captured(
+            v2_sync_funcs_h,
+            ["--cfg-dir", str(cfg_dir), "--out", str(funcs_h)],
+        )
+        if sync_code != 0:
+            raise RuntimeError(f"funcs.h sync failed (exit {sync_code})")
+
     reporter.phase(
         "emit",
         pct=0.15,
