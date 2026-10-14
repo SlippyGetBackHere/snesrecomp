@@ -2471,7 +2471,7 @@ static int _interp_run_core(CpuState *cpu, uint32_t entry_pc24,
         {
             unsigned _internal = (unsigned)_cyc > s_interp_bus_cycles
                                ? (unsigned)_cyc - s_interp_bus_cycles : 0;
-            uint64_t _master = s_interp_bus_master + (uint64_t)_internal * 6u;
+            uint64_t _master = SNES_CPU_CLOCKS(s_interp_bus_master + (uint64_t)_internal * 6u);
             g_interp_bridge_steps++;
             cpu->cycles        += (uint64_t)_cyc;
             cpu->master_cycles += _master;

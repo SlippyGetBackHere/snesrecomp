@@ -2696,7 +2696,7 @@ def _emit_blockmove(op: BlockMove) -> List[str]:
         f"        return interp_bridge_lle_yield_unwind(cpu, {_transfer_target_expr(_CURRENT_SOURCE_PC24, False)});",
         "      }",
         "      cpu->cycles += 7;",
-        f"      cpu->master_cycles += 7 * {speed_expr};",
+        f"      cpu->master_cycles += SNES_CPU_CLOCKS(7 * {speed_expr});",
         "    }",
         "  } while (cpu->A != 0xFFFF);",
         "}",

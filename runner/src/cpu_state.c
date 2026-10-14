@@ -351,6 +351,8 @@ static inline void cpu_pace_cycles_word(uint16 addr) {
  * (interp_bridge.c bridge_region_speed) and the AOT paced accessors below
  * share this single C implementation so both tiers price transfers
  * identically. */
+uint32 g_snes_cpu_clock_q8 = 256u;
+
 uint32_t cpu_region_speed(uint32_t adr) {
     uint8_t bank = (uint8_t)(adr >> 16);
     uint16_t a = (uint16_t)adr;

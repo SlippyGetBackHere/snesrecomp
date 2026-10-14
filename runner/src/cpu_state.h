@@ -757,6 +757,15 @@ RecompReturn interp_tier_dispatch_bank_miss(CpuState *cpu, uint32 addr_pc24,
  * decay it into a value mistaken for a local NLR before the (bounded ≪ 2^30)
  * host stack unwinds. */
 #define RECOMP_RETURN_LLE_UNWIND_BASE 0x40000000
+
+/* Main-CPU clock scale, in 1/256ths of a master clock per charged clock:
+ * 256 (the default) is the console's speed. A lower value makes every
+ * 65816 instruction, compiled or interpreted, cost fewer master clocks while
+ * the beam, APU, DMA and coprocessors keep real time -- an overclock, which
+ * a title can offer to reduce in-game slowdown. Every CPU charge goes
+ * through SNES_CPU_CLOCKS; at 256 it is the unscaled value. */
+extern uint32 g_snes_cpu_clock_q8;
+#define SNES_CPU_CLOCKS(n)   (g_snes_cpu_clock_q8 == 256u ? (uint64)(n)                                : (((uint64)(n) * g_snes_cpu_clock_q8) >> 8))
 int interp_bridge_in_lle_scheduler(void);
 int interp_bridge_lle_master_deadline_reached(const CpuState *cpu);
 RecompReturn interp_bridge_lle_yield_unwind(CpuState *cpu, uint32 resume_pc24);
