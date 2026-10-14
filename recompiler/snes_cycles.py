@@ -585,3 +585,111 @@ def main(argv) -> int:
 if __name__ == '__main__':
     import sys
     sys.exit(main(sys.argv[1:]))
+
+
+# ==============================================================================
+# Bus-weighted master clocks for one statically known instruction
+# ==============================================================================
+#
+# block_static_cycles() counts CPU cycles. Charging every one of them at the
+# code region's speed overstates compiled time: on the 65816 only the opcode
+# and operand fetches run at the code region's speed; data accesses run at the
+# speed of the region they touch (work RAM 8, PPU/CPU I/O 6, joypad 12) and
+# internal cycles at 6. The interpreter tier charges exactly that per access,
+# so a compiled block charged at 8 per cycle ran slower than the same code
+# interpreted -- and slower than the console -- in logic-heavy frames.
+
+_READ_MNEMS = {'LDA', 'LDX', 'LDY', 'ORA', 'AND', 'EOR', 'ADC', 'SBC', 'CMP',
+               'CPX', 'CPY', 'BIT'}
+_STORE_ONLY = {'STA', 'STX', 'STY', 'STZ'}
+_X_WIDTH = {'LDX', 'LDY', 'STX', 'STY', 'CPX', 'CPY'}
+
+
+def _io_speed16(addr: int) -> int:
+    return region_speed(addr & 0xFFFF)
+
+
+def instr_bus_terms(insn):
+    """(code_clocked, other_master) for one instruction's static cycles.
+
+    `code_clocked` counts bus cycles charged at the code region's speed (the
+    opcode/operand fetch, plus pointer reads from the program bank);
+    `other_master` is the master-clock total of every other static cycle.
+    Returns None when the instruction is not modelled, so the caller keeps
+    the per-cycle code-speed charge for it.
+    """
+    from snes65816 import (IMP, ACC, IMM, REL, REL16, DP, DP_X, DP_Y, ABS,
+                           ABS_X, ABS_Y, LONG, LONG_X, INDIR, INDIR_X,
+                           INDIR_Y, INDIR_L, INDIR_LY, INDIR_DPX, DP_INDIR,
+                           STK, STK_IY)
+    op = getattr(insn, 'opcode', None)
+    mnem = getattr(insn, 'mnem', None)
+    mode = getattr(insn, 'mode', None)
+    length = getattr(insn, 'length', None)
+    if op is None or mnem is None or length is None:
+        return None
+    m = getattr(insn, 'm_flag', 1) & 1
+    x = getattr(insn, 'x_flag', 1) & 1
+    total = instr_static_cycles(op, m, x)
+    operand = getattr(insn, 'operand', 0) or 0
+    code = length
+    data = []            # (bytes, speed)
+    w = (1 if x else 2) if mnem in _X_WIDTH else (1 if m else 2)
+
+    if mnem in ('JSR', 'JSL', 'RTS', 'RTL', 'RTI', 'JMP', 'BRK', 'COP'):
+        if mnem == 'JSR':
+            data.append((2, SLOW))
+            if mode == INDIR_X:
+                code += 2
+        elif mnem == 'JSL':
+            data.append((3, SLOW))
+        elif mnem == 'RTS':
+            data.append((2, SLOW))
+        elif mnem == 'RTL':
+            data.append((3, SLOW))
+        elif mnem == 'RTI':
+            data.append((4, SLOW))
+        elif mnem == 'JMP':
+            if op == 0x6C:
+                data.append((2, _io_speed16(operand)))
+            elif op == 0xDC:
+                data.append((3, _io_speed16(operand)))
+            elif op == 0x7C:
+                code += 2
+        else:                                  # BRK / COP
+            data.append((4, SLOW))
+            data.append((2, SLOW))
+    elif mnem in ('PHA', 'PLA', 'PHX', 'PLX', 'PHY', 'PLY'):
+        width = (1 if x else 2) if mnem in ('PHX', 'PLX', 'PHY', 'PLY') else (1 if m else 2)
+        data.append((width, SLOW))
+    elif mnem in ('PHP', 'PLP', 'PHB', 'PLB', 'PHK'):
+        data.append((1, SLOW))
+    elif mnem in ('PHD', 'PLD', 'PEA', 'PER'):
+        data.append((2, SLOW))
+    elif mnem == 'PEI':
+        data.append((4, SLOW))
+    elif mnem in ('MVN', 'MVP'):
+        data.append((2, SLOW))
+    elif mode in (IMP, ACC, IMM, REL, REL16):
+        pass
+    else:
+        is_rmw = mnem in ('ASL', 'LSR', 'ROL', 'ROR', 'INC', 'DEC', 'TSB', 'TRB')
+        if not (is_rmw or mnem in _READ_MNEMS or mnem in _STORE_ONLY):
+            return None
+        nbytes = 2 * w if is_rmw else w
+        if mode in (ABS, ABS_X, ABS_Y):
+            speed = _io_speed16(operand)
+        elif mode in (LONG, LONG_X):
+            speed = region_speed(operand & 0xFFFFFF)
+        else:
+            speed = SLOW                       # direct page / stack: work RAM
+        if mode in (DP_INDIR, INDIR_Y, INDIR_DPX, STK_IY):
+            data.append((2, SLOW))
+        elif mode in (INDIR_L, INDIR_LY):
+            data.append((3, SLOW))
+        data.append((nbytes, speed))
+    nbus = sum(b for b, _ in data)
+    internal = total - code - nbus
+    if internal < 0:
+        return None
+    return code, sum(b * s for b, s in data) + internal * INTERNAL

@@ -160,6 +160,11 @@ void snes_set_hdma_beam_enabled(Snes *snes, bool enabled);
  * frame, freezing the guest. Default: enabled (the beam latches). Host policy,
  * not guest state: kept out of the Snes struct and so out of savestates. */
 void snes_set_raster_irq_beam_enabled(bool enabled);
+/* A host whose beam follows the CPU's master clock sets this. A $4212 read
+ * then first brings the beam up to the CPU's master clock instead of adding
+ * the static-recomp polling tick, which double-counted time in vblank wait
+ * loops already charged to the clock. Off by default. */
+void snes_set_beam_from_master_clock(bool enabled);
 bool snes_next_irq_master(const Snes *snes, uint64_t now, uint64_t *out);
 
 /* Master clocks from the current beam position to the next programmed H/V IRQ

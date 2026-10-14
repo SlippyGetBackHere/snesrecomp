@@ -69,6 +69,10 @@ void snes_set_hdma_beam_enabled(Snes *snes, bool enabled) {
 }
 
 static bool s_raster_irq_beam_off;
+static bool s_beam_from_master_clock;
+void snes_set_beam_from_master_clock(bool enabled) {
+  s_beam_from_master_clock = enabled;
+}
 void snes_set_raster_irq_beam_enabled(bool enabled) {
   s_raster_irq_beam_off = !enabled;
 }
@@ -651,8 +655,17 @@ uint8_t snes_readReg(Snes* snes, uint16_t adr) {
        * polling tick as well doubles time in $4212 wait loops (SMRPG's boot
        * fades completed in half the reference frame count). */
       extern int g_interp_apu_driving;
-      if (!g_interp_apu_driving)
+      if (s_beam_from_master_clock) {
+        /* Compiled code charges its cycles to the master clock but does not
+         * walk the beam as it goes: pay the beam up to the CPU's time, so
+         * vblank, hblank and the auto-joypad busy bit are where they are on
+         * hardware -- instead of a fixed tick per read on top of time
+         * already charged. */
+        extern CpuState g_cpu;
+        snes_sync_master_clock(snes, g_cpu.master_cycles);
+      } else if (!g_interp_apu_driving) {
         snes_advance_beam(snes, 64, false);
+      }
       // Bit 7 = vblank. The real frame loop drives vblank via inNmi, not
       // inVblank (inVblank is never set true), so on the static-recomp
       // path bit 7 must be SYNTHESIZED the same way bit 6 is — otherwise a
