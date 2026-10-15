@@ -86,6 +86,15 @@ void ConfigUseStateMenuDefaults(void) {
 void ConfigUseInGameLauncherDefaults(void) {
   kDefaultKbdControls[kKeys_OpenLauncher] = C(SDLK_l);
 }
+/* A title's own rewind ring for an install whose config.ini has no [Rewind]
+ * values yet (SnesDesktopHostGame.rewind_default_depth / _interval). Opt in
+ * before parsing; zero keeps the framework's ring. */
+static int s_rewind_default_depth = 60;
+static int s_rewind_default_interval = 6;
+void ConfigUseRewindDefaults(int depth, int interval) {
+  if (depth > 0) s_rewind_default_depth = depth;
+  if (interval > 0) s_rewind_default_interval = interval;
+}
 #undef _
 #undef A
 #undef C
@@ -679,8 +688,8 @@ void ParseConfigFile(const char *filename) {
   /* Rewind's built-in ring, matching snes_rewind.c's own defaults so a host
    * that opts into the launcher rows starts from what it already had. */
   g_config.rewind_enabled = true;
-  g_config.rewind_depth = 60;
-  g_config.rewind_interval = 6;
+  g_config.rewind_depth = s_rewind_default_depth;
+  g_config.rewind_interval = s_rewind_default_interval;
   /* Default ON to preserve current behaviour across other ports that
    * share this framework code; per-game .ini sets it false where the
    * oracle is incompatible with the repro workflow. See config.h doc. */

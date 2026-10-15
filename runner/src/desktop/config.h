@@ -196,6 +196,9 @@ extern Config g_config;
 void ConfigUseStateMenuDefaults(void);
 /* Opt in before parsing: binds [KeyMap] OpenLauncher to Ctrl+L by default. */
 void ConfigUseInGameLauncherDefaults(void);
+/* Rewind ring defaults (snapshots, frames between them) for a config.ini
+ * without [Rewind] values; <= 0 keeps the framework's. Call before parsing. */
+void ConfigUseRewindDefaults(int depth, int interval);
 void ParseConfigFile(const char *filename);
 // Re-apply only the [KeyMap] section (launcher hotkey editor wrote it after
 // the initial parse). Keyboard command map is rebuilt; gamepad map and all

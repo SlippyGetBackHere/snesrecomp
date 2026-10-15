@@ -178,6 +178,14 @@ typedef struct SnesDesktopHostGame {
    * holds whole-machine snapshots, so a port that wants it off out of the box
    * ships `[Rewind] Enabled = 0` in default_config_ini. */
   int rewind_settings;
+  /* The rewind ring a fresh install starts with: snapshots kept, and frames
+   * between them (60 frames = one second). Zero keeps the framework's 60
+   * snapshots every 6 frames. A config.ini [Rewind] value still wins, so a
+   * player's launcher choice sticks. The launcher's rows offer depths 50,
+   * 100, 150, 200 and intervals 1, 4, 8, 12, 15, 30; pick from those so the
+   * rows show the value in effect. */
+  int rewind_default_depth;
+  int rewind_default_interval;
   /* Opt in to reopening the launcher mid-game: [KeyMap] OpenLauncher
    * (default Ctrl+L) or [Controller] LauncherGesture (default Select+L3)
    * freezes the guest and opens the full launcher over it. Settings that can
