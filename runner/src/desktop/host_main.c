@@ -4113,6 +4113,11 @@ error_reading:;
     g_open_launcher_hotkey = 0;
     if ((g_rewind_hotkey || PadGesturePressed(&g_rewind_gesture)) && !snes_rewind_is_open() &&
         !snes_savestate_menu_is_open()) {
+      /* Consume the hotkey before opening. The `continue` below skips the
+       * clear after this block, so a hotkey still set there reopened the
+       * strip on the next pass: every commit or cancel landed straight back
+       * in a fresh strip, and the player could never leave it. */
+      g_rewind_hotkey = 0;
       /* Refused during netplay by snes_rewind_open() itself: one machine
        * cannot move its own clock backwards while a peer is watching. */
       if (snes_rewind_open()) {
