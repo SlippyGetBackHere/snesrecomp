@@ -22,7 +22,13 @@
 #       --exe-name MyGameSNESRecomp --zip-prefix mygame --display-name "My Game" \
 #       [--runtime-dir NAME]... [--rom-hint "My Game (USA).sfc"] \
 #       [--rom-sha256 HEX] [--rom-crc32 HEX] \
-#       [--embed-toolchain] [--toolchain-dir DIR] [--root DIR]
+#       [--embed-toolchain] [--toolchain-dir DIR] [--root DIR] \
+#       [--exclude-dir PATH]...
+#
+# --exclude-dir leaves a tracked directory (repo-relative, e.g.
+# snesrecomp/docs) out of the source tree: documentation and test suites a
+# player's rebuild never reads. The files the setup host needs are checked
+# after staging, so excluding one of them fails the package.
 #
 # Env: RELEASE_VERSION overrides the VERSION file. RETCOMM_TOOLCHAIN_DIR /
 # TOOLCHAIN_DIR name the pack for --embed-toolchain when --toolchain-dir is
@@ -48,10 +54,11 @@ ROM_CRC32=""
 EMBED_TOOLCHAIN=0
 TOOLCHAIN_DIR_ARG=""
 RUNTIME_DIRS=()
+EXCLUDE_DIRS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     --build-dir) BUILD_DIR="${2:?}"; shift 2 ;;
     --artifact) ARTIFACT="${2:?}"; shift 2 ;;
     --exe-name) EXE_NAME="${2:?}"; shift 2 ;;
@@ -65,6 +72,7 @@ while [[ $# -gt 0 ]]; do
     --no-embed-toolchain) EMBED_TOOLCHAIN=0; shift ;;
     --toolchain-dir) TOOLCHAIN_DIR_ARG="${2:?}"; shift 2 ;;
     --root) ROOT="${2:?}"; shift 2 ;;
+    --exclude-dir) EXCLUDE_DIRS+=("${2%/}/"); shift 2 ;;
     *) echo "error: unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -155,7 +163,12 @@ fi
 # whole copy (CI checkouts never have one; a developer's tree can).
 git -C "${ROOT}" ls-files -z --recurse-submodules \
   | grep -zvE '(^|/)\.github/' \
-  | { while IFS= read -r -d '' f; do [[ -e "${ROOT}/${f}" ]] && printf '%s\0' "${f}"; done; } \
+  | { while IFS= read -r -d '' f; do
+        for x in "${EXCLUDE_DIRS[@]+"${EXCLUDE_DIRS[@]}"}"; do
+          [[ "${f}" == "${x}"* ]] && continue 2
+        done
+        [[ -e "${ROOT}/${f}" ]] && printf '%s\0' "${f}"
+      done; } \
   | tar -C "${ROOT}" --null -T - -cf - \
   | tar -xf - -C "${STAGE}"
 # Where things came from, for whoever debugs a player's rebuild.
