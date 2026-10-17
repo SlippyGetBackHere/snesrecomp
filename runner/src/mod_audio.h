@@ -67,6 +67,29 @@ void snes_mod_audio_stop_all(void);
  * acknowledgements and loop intent without serializing presentation state. */
 uint32_t snes_mod_audio_reset_generation(void);
 
+/*
+ * One streamed voice for material too long to register as a clip (music).
+ * The trusted plugin owns the source: `fill` is called from the audio thread,
+ * under the APU lock, to write up to `frames` interleaved signed-16 frames of
+ * `channels` (1 or 2) at `sample_rate` into `dst`, and returns how many it
+ * wrote. Returning fewer than asked marks the end of the stream: the voice
+ * drains what it has and stops, and snes_mod_audio_stream_ended() reports it.
+ * The mixer resamples to the device rate and applies gain (0-200%). `fill`
+ * must not block or call back into this API. Starting a stream replaces any
+ * current one; stop_all (reset, save-state load) stops it too.
+ */
+typedef uint32_t (*SNESModAudioStreamFill)(void *user, int16_t *dst,
+                                           uint32_t frames);
+int snes_mod_audio_stream_start(SNESModAudioStreamFill fill, void *user,
+                                uint32_t sample_rate, uint32_t channels,
+                                int gain_percent);
+void snes_mod_audio_stream_stop(void);
+int snes_mod_audio_stream_set_gain(int gain_percent);
+/* Nonzero while a stream is playing. */
+int snes_mod_audio_stream_active(void);
+/* Nonzero once the current stream ran out of source (not when stopped). */
+int snes_mod_audio_stream_ended(void);
+
 /* Saturating-mix active one-shots into interleaved mono/stereo destination
  * PCM. output_rate is the actual device rate for this callback. The host calls
  * this from its existing audio lock; control functions take that same lock. */

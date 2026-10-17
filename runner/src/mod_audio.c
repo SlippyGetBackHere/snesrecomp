@@ -122,9 +122,39 @@ static ClipSlot *clip_slot(SNESModAudioClip clip) {
     return &s_clips[clip - 1];
 }
 
+/* The streamed voice. buf holds source frames [0, len); idx/frac is the read
+ * position. Interpolating needs idx and idx+1, so a refill keeps the current
+ * frame at buf[0] and appends after it. */
+#define SNES_MOD_AUDIO_STREAM_BUF 4096
+typedef struct StreamVoice {
+    SNESModAudioStreamFill fill;
+    void *user;
+    uint32_t sample_rate;
+    uint32_t channels;
+    int gain_percent;
+    int active;
+    int ended;
+    int source_done;
+    uint32_t len;
+    uint32_t idx;
+    uint32_t frac; /* 0.32 fixed point between idx and idx+1 */
+    int16_t buf[SNES_MOD_AUDIO_STREAM_BUF * 2];
+} StreamVoice;
+static StreamVoice s_stream;
+
+static void stream_stop_locked(void) {
+    s_stream.active = 0;
+    s_stream.fill = NULL;
+    s_stream.user = NULL;
+    s_stream.len = s_stream.idx = s_stream.frac = 0;
+    s_stream.source_done = 0;
+}
+
 static void stop_all_locked(void) {
     memset(s_voices, 0, sizeof(s_voices));
     s_replace_cursor = 0;
+    stream_stop_locked();
+    s_stream.ended = 0;
 }
 
 SNESModAudioClip snes_mod_audio_register_pcm_s16(
@@ -275,6 +305,112 @@ static int16_t clamp_s16(int64_t value) {
     return (int16_t)value;
 }
 
+int snes_mod_audio_stream_start(SNESModAudioStreamFill fill, void *user,
+                                uint32_t sample_rate, uint32_t channels,
+                                int gain_percent) {
+    if (!fill || sample_rate < 8000 || sample_rate > 192000 ||
+        (channels != SNES_MOD_AUDIO_CHANNELS_MONO &&
+         channels != SNES_MOD_AUDIO_CHANNELS_STEREO))
+        return 0;
+    if (gain_percent < 0) gain_percent = 0;
+    if (gain_percent > 200) gain_percent = 200;
+    RtlApuLock();
+    stream_stop_locked();
+    s_stream.fill = fill;
+    s_stream.user = user;
+    s_stream.sample_rate = sample_rate;
+    s_stream.channels = channels;
+    s_stream.gain_percent = gain_percent;
+    s_stream.ended = 0;
+    s_stream.active = 1;
+    RtlApuUnlock();
+    return 1;
+}
+
+void snes_mod_audio_stream_stop(void) {
+    RtlApuLock();
+    stream_stop_locked();
+    s_stream.ended = 0;
+    RtlApuUnlock();
+}
+
+int snes_mod_audio_stream_set_gain(int gain_percent) {
+    if (gain_percent < 0) gain_percent = 0;
+    if (gain_percent > 200) gain_percent = 200;
+    RtlApuLock();
+    const int active = s_stream.active;
+    s_stream.gain_percent = gain_percent;
+    RtlApuUnlock();
+    return active;
+}
+
+int snes_mod_audio_stream_active(void) {
+    RtlApuLock();
+    const int active = s_stream.active;
+    RtlApuUnlock();
+    return active;
+}
+
+int snes_mod_audio_stream_ended(void) {
+    RtlApuLock();
+    const int ended = s_stream.ended;
+    RtlApuUnlock();
+    return ended;
+}
+
+/* Make buf[idx] and buf[idx + 1] valid, refilling from the source. Returns 0
+ * once there is no next frame left (the stream has ended). */
+static int stream_ensure_locked(void) {
+    while (s_stream.idx + 1 >= s_stream.len) {
+        if (s_stream.source_done)
+            return s_stream.idx + 1 < s_stream.len;
+        const uint32_t ch = s_stream.channels;
+        uint32_t keep = 0;
+        if (s_stream.idx < s_stream.len) {
+            memmove(s_stream.buf, s_stream.buf + (size_t)s_stream.idx * ch,
+                    (size_t)ch * sizeof(int16_t));
+            keep = 1;
+        }
+        s_stream.idx = 0;
+        const uint32_t want = SNES_MOD_AUDIO_STREAM_BUF - keep;
+        const uint32_t got = s_stream.fill(s_stream.user,
+                                           s_stream.buf + (size_t)keep * ch, want);
+        s_stream.len = keep + (got > want ? want : got);
+        if (got < want) s_stream.source_done = 1;
+        if (keep == 0 && s_stream.len == 0) return 0;
+    }
+    return 1;
+}
+
+static void stream_mix_locked(int64_t mixed[2], uint32_t output_rate,
+                              uint32_t output_channels) {
+    if (!s_stream.active) return;
+    if (!stream_ensure_locked()) {
+        stream_stop_locked();
+        s_stream.ended = 1;
+        return;
+    }
+    const uint32_t ch = s_stream.channels;
+    const int16_t *a = s_stream.buf + (size_t)s_stream.idx * ch;
+    const int16_t *b = a + ch;
+    int32_t out[2];
+    for (uint32_t c = 0; c < 2; ++c) {
+        const uint32_t sc = ch == 1 ? 0 : c;
+        out[c] = a[sc] + (int32_t)(((int64_t)(b[sc] - a[sc]) * s_stream.frac) /
+                                   4294967296LL);
+    }
+    if (output_channels == 1) {
+        mixed[0] += ((int64_t)((out[0] + out[1]) / 2) * s_stream.gain_percent) / 100;
+    } else {
+        mixed[0] += ((int64_t)out[0] * s_stream.gain_percent) / 100;
+        mixed[1] += ((int64_t)out[1] * s_stream.gain_percent) / 100;
+    }
+    const uint64_t step = ((uint64_t)s_stream.sample_rate << 32) / output_rate;
+    const uint64_t pos = (uint64_t)s_stream.frac + step;
+    s_stream.idx += (uint32_t)(pos >> 32);
+    s_stream.frac = (uint32_t)pos;
+}
+
 void snes_mod_audio_mix(int16_t *dst, int frame_count, uint32_t output_rate,
                         uint32_t output_channels) {
     if (!dst || frame_count <= 0 || output_rate < 8000 || output_rate > 192000 ||
@@ -321,6 +457,7 @@ void snes_mod_audio_mix(int16_t *dst, int frame_count, uint32_t output_rate,
                 memset(voice, 0, sizeof(*voice));
             }
         }
+        stream_mix_locked(mixed, output_rate, output_channels);
         for (uint32_t channel = 0; channel < output_channels; ++channel)
             dst[(size_t)frame * output_channels + channel] = clamp_s16(mixed[channel]);
     }
