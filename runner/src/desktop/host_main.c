@@ -1200,6 +1200,18 @@ static void ComposeOsd(uint8 *dst, int pitch, int dst_w, int dst_h, int scale_di
     snes_ovl_blit_panel_rect(dst, pitch, dst_w, dst_h, px, w, h,
                              dst_w - bw - 4 / scale_div, (dst_h - bh) / 2, bw, bh);
   }
+  /* A title's caption sits at the bottom, centred or against the right edge
+   * less its margin (given in 1x frame pixels). */
+  int anchor = 0, margin = 0;
+  if (snes_osd_caption_image(&px, &w, &h, &anchor, &margin) && px && w > 0 && h > 0) {
+    const int bw = w / scale_div, bh = h / scale_div;
+    const int unit = dst_w / 256 > 0 ? dst_w / 256 : 1;
+    const int x = anchor == SNES_OSD_CAPTION_BOTTOM_RIGHT
+        ? dst_w - bw - (margin + 2) * unit
+        : (dst_w - bw) / 2;
+    snes_ovl_blit_panel_rect(dst, pitch, dst_w, dst_h, px, w, h,
+                             x, dst_h - bh - 4 * unit, bw, bh);
+  }
   snes_osd_present_done();
 }
 

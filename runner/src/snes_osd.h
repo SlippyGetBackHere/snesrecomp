@@ -87,6 +87,23 @@ void snes_osd_push_slot_saved(int slot);
 void snes_osd_push_slot_loaded(int slot);
 void snes_osd_push_slot_empty(int slot);
 
+/* ---- captions ----------------------------------------------------------- */
+
+/* A small caption at the BOTTOM of the frame, separate from the top-left
+ * toasts: for a title's own unobtrusive notices ("now playing"). anchor
+ * picks the position; edge_margin is how far, in frame pixels at 1x, to keep
+ * clear of the right edge for SNES_OSD_CAPTION_BOTTOM_RIGHT (a title's side
+ * panel, say). Text wider than the frame wraps at a space onto a second
+ * line; past that it is cut with "...". A new caption replaces the current
+ * one; duration_ms <= 0 uses the toast default. */
+#define SNES_OSD_CAPTION_BOTTOM_CENTER 0
+#define SNES_OSD_CAPTION_BOTTOM_RIGHT  1
+void snes_osd_caption(const char *msg, int duration_ms, int anchor,
+                      int edge_margin);
+/* The caption panel (ARGB, premultiplied) while it is showing, else 0. */
+int snes_osd_caption_image(const uint32_t **pixels, int *w, int *h,
+                           int *anchor, int *edge_margin);
+
 /* ---- presenting --------------------------------------------------------- */
 
 /*
