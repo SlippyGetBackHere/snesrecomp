@@ -59,6 +59,7 @@
 #include "state_dump.h"
 #include "config.h"
 #include "display_aspect.h"
+#include "snes_choice_menu.h"
 #include "crc32.h"
 #include "util.h"
 #include "spc_player.h"
@@ -1588,7 +1589,8 @@ static void PumpOverlayEvents(bool *running, void (*key_down)(int key, int repea
     case SDL_KEYDOWN:
       /* The browser consumes SNES control bits too. Dispatch only controls;
        * slot/reset hotkeys must not change the guest behind a modal panel. */
-      if (key_down == snes_savestate_menu_handle_key) {
+      if (key_down == snes_savestate_menu_handle_key ||
+          key_down == snes_choice_menu_handle_key) {
         int cmd = FindCmdForSdlKey(SNESRECOMP_SDL_EVENT_KEY(event),
                                   SNESRECOMP_SDL_EVENT_MOD(event));
         if (cmd >= kKeys_Controls && cmd <= kKeys_Controls_Last)
@@ -1825,6 +1827,10 @@ static void PresentFrozenWithOverlay(void) {
   const uint32_t *panel = NULL;
   int pw = 0, ph = 0;
   int is_menu = snes_savestate_menu_overlay_image(&panel, &pw, &ph) && panel;
+  /* A title's choice list (snes_choice_menu) is placed like the browser:
+   * centred over the frozen game. */
+  if (!is_menu && snes_choice_menu_overlay_image(&panel, &pw, &ph) && panel)
+    is_menu = 1;
   if (!is_menu && !(snes_rewind_overlay_image(&panel, &pw, &ph) && panel))
     panel = NULL;
 
@@ -1934,6 +1940,44 @@ static void RunSavestateMenuLoop(bool *running) {
   OverlayNoteClosed();
   host_report_breadcrumb("save-state browser CLOSED after %u pumps - guest resuming",
                          frames);
+}
+
+/* A title's choice list (snes_choice_menu), opened by its own code during a
+ * guest frame. Modal like the browser: the guest stays frozen at the frame
+ * boundary until a choice is made, and the choice's callback runs there.
+ * SNESRECOMP_CHOICE_MENU_AUTO=<index> (or -1 to cancel) answers it after a
+ * few presents, for headless runs that cannot press anything; with
+ * SNESRECOMP_OVERLAY_DUMP set those presents are what it captures. */
+static void RunChoiceMenuLoop(bool *running) {
+  unsigned frames = 0;
+  long auto_pick = -2;
+  {
+    const char *v = HostGetenv("CHOICE_MENU_AUTO");
+    if (v && *v) auto_pick = strtol(v, NULL, 0);
+  }
+  host_report_breadcrumb("choice menu OPEN - guest frozen until a choice is made");
+  g_overlay_modal = true;
+  SetAudioPaused(true);
+  while (snes_choice_menu_is_open() && *running) {
+    PumpOverlayEvents(running, &snes_choice_menu_handle_key);
+    if (!*running) {
+      snes_choice_menu_finish(-1);
+      break;
+    }
+    snes_choice_menu_poll_nav(OverlayNavInputs(), SDL_GetTicks());
+    if (!snes_choice_menu_is_open())
+      break;
+    PresentFrozenWithOverlay();
+    if (auto_pick != -2 && frames >= 3)
+      snes_choice_menu_finish((int)auto_pick);
+    SDL_Delay(8);
+    frames++;
+  }
+  g_overlay_modal = false;
+  ResetAudioTimeline();
+  SetAudioPaused(g_paused);
+  OverlayNoteClosed();
+  host_report_breadcrumb("choice menu CLOSED after %u pumps - guest resuming", frames);
 }
 
 static void RewindKeyDown(int key, int repeat) {
@@ -4148,6 +4192,11 @@ error_reading:;
     }
     if (snes_savestate_menu_is_open()) {
       RunSavestateMenuLoop(&running);
+      GameReset();
+      continue;   /* guest was frozen: no frame to run or present */
+    }
+    if (snes_choice_menu_is_open()) {
+      RunChoiceMenuLoop(&running);
       GameReset();
       continue;   /* guest was frozen: no frame to run or present */
     }

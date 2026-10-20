@@ -203,6 +203,7 @@ set(SNESRECOMP_RUNNER_SOURCES
     ${SNESRECOMP_RUNNER_ROOT}/src/sha256.c
     ${SNESRECOMP_RUNNER_ROOT}/src/keybinds.c
     ${SNESRECOMP_RUNNER_ROOT}/src/snes_overlay_draw.c
+    ${SNESRECOMP_RUNNER_ROOT}/src/snes_choice_menu.c
     ${SNESRECOMP_RUNNER_ROOT}/src/snes_runahead.c
     ${SNESRECOMP_RUNNER_ROOT}/src/snes_savestate_menu.c
     # The facade supplies offline stubs unless this target enables netplay.
