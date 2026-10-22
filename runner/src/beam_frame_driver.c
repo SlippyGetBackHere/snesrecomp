@@ -248,7 +248,7 @@ void snes_beam_frame_driver_draw_ppu_frame_observed(
   dma_initHdma(g_snes->dma);
   /* Hardware's V=0 init also performs each channel's first transfer before
    * any visible pixel. */
-  dma_primeHdmaFirstLine(g_snes->dma);
+  dma_doHdma(g_snes->dma);
   for (line = 1; line <= 224; line++) {
     uint8_t hdmaen;
     /* A split is written in H-blank after its line is drawn, so the previous
