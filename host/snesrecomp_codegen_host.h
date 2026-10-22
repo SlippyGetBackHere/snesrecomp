@@ -31,6 +31,8 @@ typedef struct SnesrecompCodegenHostConfig {
     const char* out_dir;                /* default: src/gen */
     const char* funcs_h;                /* default: recomp/funcs.h (NULL = skip sync) */
     const char* gen_marker_relpath;     /* default: src/gen/dispatch_v2.c */
+    const char* coverage_dir;           /* default: recomp/coverage (passed to
+                                         * generate only when it exists) */
     const char* build_dir_name;         /* default: build */
 
     /* CMake / binary identity (required for auto-rebuild). */

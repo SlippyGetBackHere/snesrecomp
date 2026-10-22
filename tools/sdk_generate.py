@@ -63,6 +63,8 @@ def generate(
     source_roots: Optional[Sequence[pathlib.Path]] = None,
     profile_manifests: Optional[Sequence[pathlib.Path]] = None,
     legacy_profile_rom_sha256: Optional[str] = None,
+    historical_profile_manifests: Optional[Sequence[pathlib.Path]] = None,
+    coverage_dir: Optional[pathlib.Path] = None,
     analysis_backend: str = "native",
     expected_crc32: Optional[str] = None,
     expected_sha256: Optional[str] = None,
@@ -121,6 +123,22 @@ def generate(
             ["--profile-manifest", str(pathlib.Path(manifest).resolve())])
     if legacy_profile_rom_sha256:
         emit_args.extend(["--legacy-profile-rom-sha256", legacy_profile_rom_sha256])
+    # Coverage captures recorded by different builds of the same project.
+    # --profile-manifest merges its inputs and refuses captures from
+    # different builds; the emitter's historical input validates each one on
+    # its own. A project's capture directory (scaffold convention:
+    # recomp/coverage/) passes every *.json then *.jsonl in it this way, so
+    # the launcher's Generate & rebuild compiles what tools/regen.sh does.
+    historical = [pathlib.Path(m) for m in historical_profile_manifests or ()]
+    if coverage_dir is not None:
+        coverage_dir = pathlib.Path(coverage_dir).resolve()
+        if not coverage_dir.is_dir():
+            raise ValueError(f"coverage-dir is not a directory: {coverage_dir}")
+        historical += sorted(coverage_dir.glob("*.json"))
+        historical += sorted(coverage_dir.glob("*.jsonl"))
+    for manifest in historical:
+        emit_args.extend(["--historical-profile-manifest",
+                          str(pathlib.Path(manifest).resolve())])
 
     def run_captured(tool, arguments: Sequence[str]) -> int:
         """Run a tools.* main(), keeping stdout JSONL-clean when needed."""
@@ -173,6 +191,7 @@ def generate(
         "funcs_h": str(funcs_h) if funcs_h is not None else None,
         "funcs_count": funcs_count,
         "cfg_roots": bool(cfg_roots),
+        "coverage_captures": len(historical),
         "analysis_backend": analysis_backend,
     }
     reporter.phase("done", pct=1.0, message="Generate complete")
@@ -238,6 +257,14 @@ def generate_command(args: argparse.Namespace, progress: ProgressReporter) -> in
                 for m in getattr(args, "profile_manifest", []) or []
             ],
             legacy_profile_rom_sha256=getattr(args, "legacy_profile_rom_sha256", None),
+            historical_profile_manifests=[
+                _resolve_under(project_root, m)
+                for m in getattr(args, "historical_profile_manifest", []) or []
+            ],
+            coverage_dir=(
+                _resolve_under(project_root, args.coverage_dir)
+                if getattr(args, "coverage_dir", None) else None
+            ),
             analysis_backend=args.analysis_backend,
             expected_crc32=args.expected_crc32,
             expected_sha256=args.expected_sha256,
@@ -315,6 +342,18 @@ def add_generate_parser(subparsers) -> None:
     generate_parser.add_argument(
         "--legacy-profile-rom-sha256",
         help="explicitly associate an unbound v1 profile with this ROM SHA-256",
+    )
+    generate_parser.add_argument(
+        "--historical-profile-manifest",
+        action="append",
+        default=[],
+        help="coverage capture from another build of this project, validated "
+             "on its own rather than merged (repeatable)",
+    )
+    generate_parser.add_argument(
+        "--coverage-dir",
+        help="pass every *.json and *.jsonl capture in this directory as "
+             "--historical-profile-manifest",
     )
     generate_parser.add_argument(
         "--analysis-backend",

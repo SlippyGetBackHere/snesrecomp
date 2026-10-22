@@ -54,6 +54,7 @@ static char g_helper_path[1100];
 static char g_cfg_dir[256];
 static char g_out_dir[256];
 static char g_funcs_h[256];
+static char g_coverage_dir[256];
 static char g_cmake_target[256];
 static char g_display[128];
 static char g_toolchain_root[1100];   /* pack root with bin/cmake, or "" */
@@ -973,6 +974,16 @@ static void handle_progress_line(const char* line,
 }
 
 #if defined(_WIN32)
+/* The project's coverage captures, when it has any. They decide which code
+ * is compiled rather than interpreted, so a player's Generate & rebuild must
+ * pass them exactly as the project's own tools/regen.sh does. */
+static int coverage_dir_present(void) {
+    char dir[1400];
+    return g_coverage_dir[0] &&
+           join_path(dir, sizeof(dir), g_project_root, g_coverage_dir) &&
+           path_is_dir(dir);
+}
+
 static int run_generate_win(const char* rom,
                             RecompLauncherCPrepareProgressFn on_progress,
                             void* progress_ctx, char* err_msg, size_t err_cap) {
@@ -985,20 +996,25 @@ static int run_generate_win(const char* rom,
     if (g_cfg->expected_sha256 && g_cfg->expected_sha256[0])
         snprintf(sha_arg, sizeof(sha_arg), " --expected-sha256 %s",
                  g_cfg->expected_sha256);
+    char cov_arg[300] = "";
+    if (coverage_dir_present())
+        snprintf(cov_arg, sizeof(cov_arg), " --coverage-dir \"%s\"",
+                 g_coverage_dir);
 
     if (g_has_funcs_h) {
         snprintf(cmdline, sizeof(cmdline),
                  "\"%s\" \"%s\" generate --project-root \"%s\" --rom \"%s\" "
-                 "--cfg-dir \"%s\" --out-dir \"%s\" --funcs-h \"%s\"%s%s%s "
+                 "--cfg-dir \"%s\" --out-dir \"%s\" --funcs-h \"%s\"%s%s%s%s "
                  "--json-progress",
                  g_python, g_cli_path, g_project_root, rom, g_cfg_dir, g_out_dir,
-                 g_funcs_h, g_cfg_roots ? " --cfg-roots" : "", crc_arg, sha_arg);
+                 g_funcs_h, g_cfg_roots ? " --cfg-roots" : "", cov_arg, crc_arg,
+                 sha_arg);
     } else {
         snprintf(cmdline, sizeof(cmdline),
                  "\"%s\" \"%s\" generate --project-root \"%s\" --rom \"%s\" "
-                 "--cfg-dir \"%s\" --out-dir \"%s\"%s%s%s --json-progress",
+                 "--cfg-dir \"%s\" --out-dir \"%s\"%s%s%s%s --json-progress",
                  g_python, g_cli_path, g_project_root, rom, g_cfg_dir, g_out_dir,
-                 g_cfg_roots ? " --cfg-roots" : "", crc_arg, sha_arg);
+                 g_cfg_roots ? " --cfg-roots" : "", cov_arg, crc_arg, sha_arg);
     }
 
     SECURITY_ATTRIBUTES sa;
@@ -1104,6 +1120,10 @@ static int run_generate_posix(const char* rom,
     }
     if (g_cfg_roots)
         argv[argc++] = "--cfg-roots";
+    if (coverage_dir_present()) {
+        argv[argc++] = "--coverage-dir";
+        argv[argc++] = g_coverage_dir;
+    }
     if (g_cfg->expected_crc32 && g_cfg->expected_crc32[0]) {
         argv[argc++] = "--expected-crc32";
         argv[argc++] = (char*)g_cfg->expected_crc32;
@@ -1752,6 +1772,8 @@ void snesrecomp_codegen_host_apply(RecompLauncherCGameInfo* gi,
              cfg_or(cfg->cfg_dir, "recomp"));
     snprintf(g_out_dir, sizeof(g_out_dir), "%s",
              cfg_or(cfg->out_dir, "src/gen"));
+    snprintf(g_coverage_dir, sizeof(g_coverage_dir), "%s",
+             cfg_or(cfg->coverage_dir, "recomp/coverage"));
     /* recomp/funcs.h is a scaffold convention like recomp/ and src/gen/, and
      * the generated C #includes it -- so a generate that skips --funcs-h
      * produces a tree that cannot compile ("funcs.h file not found" on the
